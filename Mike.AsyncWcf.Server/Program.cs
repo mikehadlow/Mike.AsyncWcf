@@ -13,8 +13,6 @@ namespace Mike.AsyncWcf.Server
         {
             using(var host = new ServiceHost(typeof(CustomerService), baseAddress))
             {
-                
-
                 // Enable metadata publishing.
                 var smb = new ServiceMetadataBehavior
                 {
@@ -22,6 +20,13 @@ namespace Mike.AsyncWcf.Server
                     MetadataExporter = {PolicyVersion = PolicyVersion.Policy15}
                 };
                 host.Description.Behaviors.Add(smb);
+                var throttling = new ServiceThrottlingBehavior
+                {
+                    MaxConcurrentCalls = 10000,
+                    MaxConcurrentInstances = 10000,
+                    MaxConcurrentSessions = 10000
+                };
+                host.Description.Behaviors.Add(throttling);
 
                 host.Description.Behaviors.Find<ServiceDebugBehavior>().IncludeExceptionDetailInFaults = true;
 
@@ -34,7 +39,7 @@ namespace Mike.AsyncWcf.Server
                 host.Open();
 
                 Console.WriteLine("The service is ready at {0}", baseAddress);
-                Console.WriteLine("Version 1.0");
+                Console.WriteLine("Version 1.5");
                 Console.WriteLine("Press <Enter> to stop the service.");
                 Console.ReadLine();
 

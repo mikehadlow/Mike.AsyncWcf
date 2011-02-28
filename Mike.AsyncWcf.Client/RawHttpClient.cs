@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Threading;
@@ -9,8 +11,8 @@ namespace Mike.AsyncWcf.Client
     {
         private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/hello");
         private const string action = "http://tempuri.org/ICustomerService/GetCustomerDetails";
-        private const int iterations = 1000;
-        private const int intervalMilliseconds = 7;
+        private const int iterations = 10000;
+        private const int intervalMilliseconds = 2;
 
         private static int completed = 0;
         private static readonly object completedLock = new object();
@@ -18,12 +20,17 @@ namespace Mike.AsyncWcf.Client
         private static int faulted = 0;
         private static readonly object faultedLock = new object();
 
+        private static readonly List<long> elapsed = new List<long>();
+        private static readonly object elapsedLock = new object();
+
         public static void MakeRawHttpCall()
         {
             // http://computercabal.blogspot.com/2007/09/httpwebrequest-in-c-for-web-traffic.html
             ServicePointManager.Expect100Continue = false;
             ServicePointManager.UseNagleAlgorithm = false;
-            ServicePointManager.DefaultConnectionLimit = iterations;
+
+            var servicePoint = ServicePointManager.FindServicePoint(serviceUri);
+            servicePoint.ConnectionLimit = iterations;
 
             Console.WriteLine("Starting test...");
             var stopwatch = new System.Diagnostics.Stopwatch();
@@ -31,13 +38,16 @@ namespace Mike.AsyncWcf.Client
 
             for (var customerId = 0; customerId < iterations; customerId++)
             {
-                Thread.Sleep(intervalMilliseconds);
                 ExecuteRequest(customerId);
+                Thread.Sleep(intervalMilliseconds);
             }
 
-            while (completed < iterations)
+            var lastCount = 0;
+            while (completed < iterations && completed != lastCount)
             {
-                Console.WriteLine("Completed: {0:#,##0} \tFaulted: {1:#,##0}", completed, faulted);
+                lastCount = completed;
+                Console.WriteLine("Completed: {0:#,##0} \tFaulted: {1:#,##0} \tConnections: {2}", 
+                    completed, faulted, servicePoint.CurrentConnections);
                 Thread.Sleep(100);    
             }
 
@@ -46,6 +56,8 @@ namespace Mike.AsyncWcf.Client
             Console.WriteLine("Completed All {0:#,##0}", completed);
             Console.WriteLine("Faulted {0:#,##0}", faulted);
             Console.WriteLine("Elapsed ms {0:#,###}", stopwatch.ElapsedMilliseconds);
+            Console.WriteLine("Calls per second {0}", (completed * 1000) / stopwatch.ElapsedMilliseconds);
+            Console.WriteLine("Avergate call duration ms {0:#,###}", elapsed.Average());
         }
 
         private static void ExecuteRequest(int customerId) {
@@ -56,10 +68,15 @@ namespace Mike.AsyncWcf.Client
             webRequest.ContentType = "text/xml;charset=\"utf-8\"";
             webRequest.Accept = "text/xml";
             webRequest.Method = "POST";
+            webRequest.Timeout = 10000; // 10 seconds
+            webRequest.KeepAlive = true;
 
             // allow as many connections as the number of iterations
             // http://social.msdn.microsoft.com/Forums/en/ncl/thread/94ae61ec-08df-430b-a5d2-bb287a3acef0
-            webRequest.ServicePoint.ConnectionLimit = iterations;
+            // webRequest.ServicePoint.ConnectionLimit = iterations;
+
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
 
             // both GetRequestStream _and_ GetResponse must be aysnc, or both will be
             // called syncronously.
@@ -72,7 +89,6 @@ namespace Mike.AsyncWcf.Client
                 }
             }, null);
 
-
             webRequest.BeginGetResponse(asyncResult =>
             {
                 try
@@ -80,6 +96,12 @@ namespace Mike.AsyncWcf.Client
                     using (var response = webRequest.EndGetResponse(asyncResult))
                     {
                         ConsumeResponse(response);
+
+                        stopwatch.Stop();
+                        lock(elapsedLock)
+                        {
+                            elapsed.Add(stopwatch.ElapsedMilliseconds);
+                        }
                     }
                 }
                 catch (WebException webException)

@@ -23,7 +23,7 @@ namespace Mike.AsyncWcf.Server
 
     public class GetCustomerDetailsAsyncResult : IAsyncResult
     {
-        public const int DelayMilliseconds = 2000;
+        public const int DelayMilliseconds = 4000;
 
         public Customer Customer { get; private set; }
 
