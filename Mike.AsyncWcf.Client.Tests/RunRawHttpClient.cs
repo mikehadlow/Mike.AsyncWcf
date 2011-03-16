@@ -4,7 +4,7 @@ namespace Mike.AsyncWcf.Client.Tests
 {
     public class RunRawHttpClient
     {
-        private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/proxy");
+        private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/hello");
         private const string action = "http://tempuri.org/ICustomerService/GetCustomerDetails";
         private const int iterations = 10000;
         private const int intervalMilliseconds = 3;
