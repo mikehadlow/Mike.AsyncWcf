@@ -4,10 +4,10 @@ namespace Mike.AsyncWcf.Client.Tests
 {
     public class RunRawHttpClient
     {
-        private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/hello");
+        private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/proxy");
         private const string action = "http://tempuri.org/ICustomerService/GetCustomerDetails";
-        private const int iterations = 20000;
-        private const int intervalMilliseconds = 1;
+        private const int iterations = 10000;
+        private const int intervalMilliseconds = 3;
         const string soapEnvelope =
 @"<s:Envelope xmlns:s=""http://schemas.xmlsoap.org/soap/envelope/"">
 <s:Body>

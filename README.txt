@@ -1,7 +1,8 @@
 Async WCF
 =========
 
-This is a demonstration of how to build an asynchronous WCF service.
+This is a demonstration of how to build an asynchronous WCF service. Please read this post for background:
+http://mikehadlow.blogspot.com/2011/03/7000-concurrent-connections-with.html
 
 How to use it:
 --------------
