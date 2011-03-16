@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("Mike.AsyncWcf.Tests")]
+[assembly: AssemblyTitle("Mike.AsyncWcf.Client.Tests")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Microsoft")]
-[assembly: AssemblyProduct("Mike.AsyncWcf.Tests")]
+[assembly: AssemblyProduct("Mike.AsyncWcf.Client.Tests")]
 [assembly: AssemblyCopyright("Copyright © Microsoft 2011")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("9a0b4b56-a2fd-49b2-a568-02f83bdf04b1")]
+[assembly: Guid("7c95e77f-1d2b-4b1c-8e68-6ed8a122d20a")]
 
 // Version information for an assembly consists of the following four values:
 //

@@ -1,7 +1,6 @@
 using System;
-using System.Threading;
-using Mike.AsyncWcf.Core;
 using System.ServiceModel;
+using Mike.AsyncWcf.Core;
 
 namespace Mike.AsyncWcf.Server
 {
@@ -10,54 +9,29 @@ namespace Mike.AsyncWcf.Server
         ConcurrencyMode = ConcurrencyMode.Multiple)]
     public class CustomerService : ICustomerService
     {
+        public const int DelayMilliseconds = 10000;
+
         public IAsyncResult BeginGetCustomerDetails(int customerId, AsyncCallback callback, object state)
         {
-            return new GetCustomerDetailsAsyncResult(customerId, state, callback);
-        }
-
-        public Customer EndGetCustomerDetails(IAsyncResult asyncResult)
-        {
-            return ((GetCustomerDetailsAsyncResult) asyncResult).Customer;
-        }
-    }
-
-    public class GetCustomerDetailsAsyncResult : IAsyncResult
-    {
-        public const int DelayMilliseconds = 4000;
-
-        public Customer Customer { get; private set; }
-
-        public GetCustomerDetailsAsyncResult(int customerId, object asyncState, AsyncCallback asyncCallback)
-        {
-            IsCompleted = false;
-            AsyncState = asyncState;
+            var asyncResult = new SimpleAsyncResult<Customer>(state);
 
             // mimic a long running operation
             var timer = new System.Timers.Timer(DelayMilliseconds);
             timer.Elapsed += (_, args) =>
             {
-                this.Customer = GetCustomer(customerId);
-                IsCompleted = true;
-                asyncCallback(this);
+                asyncResult.Result = GetCustomer(customerId);
+                asyncResult.IsCompleted = true;
+                callback(asyncResult);
                 timer.Enabled = false;
                 timer.Close();
             };
             timer.Enabled = true;
+            return asyncResult;
         }
 
-        public bool IsCompleted { get; private set; }
-
-        // assume that WCF uses a callback rather than the AsyncWaitHandle
-        public WaitHandle AsyncWaitHandle
+        public Customer EndGetCustomerDetails(IAsyncResult asyncResult)
         {
-            get { return null; }
-        }
-
-        public object AsyncState { get; private set; }
-
-        public bool CompletedSynchronously
-        {
-            get { return false; }
+            return ((SimpleAsyncResult<Customer>) asyncResult).Result;
         }
 
         private static Customer GetCustomer(int customerId)

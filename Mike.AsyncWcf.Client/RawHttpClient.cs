@@ -9,67 +9,105 @@ namespace Mike.AsyncWcf.Client
 {
     public class RawHttpClient
     {
-        private static readonly Uri serviceUri = new Uri("http://mike-2008r2:8123/hello");
-        private const string action = "http://tempuri.org/ICustomerService/GetCustomerDetails";
-        private const int iterations = 10000;
-        private const int intervalMilliseconds = 2;
+        private readonly HttpCallConfiguration configuration;
+        private readonly TextWriter outputWriter;
 
-        private static int completed = 0;
-        private static readonly object completedLock = new object();
+        private int completed = 0;
+        private int faulted = 0;
+        private int inProgress = 0;
 
-        private static int faulted = 0;
-        private static readonly object faultedLock = new object();
+        private int maxConcurrent = 0;
+        private readonly object maxConcurrentLock = new object();
 
-        private static readonly List<long> elapsed = new List<long>();
-        private static readonly object elapsedLock = new object();
+        private bool serviceError = false;
+        private readonly object serviceErrorLock = new object();
 
-        public static void MakeRawHttpCall()
+        private readonly List<long> elapsed = new List<long>();
+        private readonly object elapsedLock = new object();
+
+        public RawHttpClient(HttpCallConfiguration configuration, TextWriter outputWriter)
+        {
+            this.configuration = configuration;
+            this.outputWriter = outputWriter;
+        }
+
+        public void MakeRawHttpCall()
         {
             // http://computercabal.blogspot.com/2007/09/httpwebrequest-in-c-for-web-traffic.html
             ServicePointManager.Expect100Continue = false;
             ServicePointManager.UseNagleAlgorithm = false;
 
-            var servicePoint = ServicePointManager.FindServicePoint(serviceUri);
-            servicePoint.ConnectionLimit = iterations;
+            var servicePoint = ServicePointManager.FindServicePoint(configuration.ServiceUri);
+            servicePoint.ConnectionLimit = configuration.Iterations;
 
-            Console.WriteLine("Starting test...");
+            outputWriter.WriteLine("Starting test...");
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
-            for (var customerId = 0; customerId < iterations; customerId++)
-            {
-                ExecuteRequest(customerId);
-                Thread.Sleep(intervalMilliseconds);
-            }
+            ThreadPool.QueueUserWorkItem(ExecuteRequests);
 
-            var lastCount = 0;
-            while (completed < iterations && completed != lastCount)
+            Thread.Sleep(10);
+            var sleepCount = 0;
+            while (completed < configuration.Iterations && !serviceError)
             {
-                lastCount = completed;
-                Console.WriteLine("Completed: {0:#,##0} \tFaulted: {1:#,##0} \tConnections: {2}", 
-                    completed, faulted, servicePoint.CurrentConnections);
-                Thread.Sleep(100);    
+                sleepCount++;
+                if (sleepCount == 100)
+                {
+                    outputWriter.WriteLine("Completed: {0:#,##0} \tFaulted: {1:#,##0} \tIn Progress: {2}",
+                        completed, faulted, inProgress);
+                    sleepCount = 0;
+                }
+                Thread.Sleep(10);    
             }
 
             stopwatch.Stop();
 
-            Console.WriteLine("Completed All {0:#,##0}", completed);
-            Console.WriteLine("Faulted {0:#,##0}", faulted);
-            Console.WriteLine("Elapsed ms {0:#,###}", stopwatch.ElapsedMilliseconds);
-            Console.WriteLine("Calls per second {0}", (completed * 1000) / stopwatch.ElapsedMilliseconds);
-            Console.WriteLine("Avergate call duration ms {0:#,###}", elapsed.Average());
+            outputWriter.WriteLine("Completed All {0:#,##0}", completed);
+            outputWriter.WriteLine("Faulted {0:#,##0}", faulted);
+            outputWriter.WriteLine("Elapsed ms {0:#,###}", stopwatch.ElapsedMilliseconds);
+            outputWriter.WriteLine("Max concurrency {0:#,###}", maxConcurrent);
+            outputWriter.WriteLine("Calls per second {0}", (completed * 1000) / stopwatch.ElapsedMilliseconds);
+            if (elapsed.Any())
+            {
+                outputWriter.WriteLine("Avergate call duration ms {0:#,###}", elapsed.Average());
+            }
         }
 
-        private static void ExecuteRequest(int customerId) {
+        private void ExecuteRequests(object state)
+        {
+            try
+            {
+                for (var i = 0; i < configuration.Iterations; i++)
+                {
+                    ExecuteRequest();
+                    Thread.Sleep(configuration.IntervalMilliseconds);
+                }
+            }
+            catch (Exception)
+            {
+                lock (serviceErrorLock)
+                {
+                    serviceError = true;
+                }
+                throw;
+            }
+        }
 
-            var webRequest = (HttpWebRequest)WebRequest.CreateDefault(serviceUri);
+        private void ExecuteRequest() {
 
-            webRequest.Headers.Add("SOAPAction", action);
-            webRequest.ContentType = "text/xml;charset=\"utf-8\"";
-            webRequest.Accept = "text/xml";
-            webRequest.Method = "POST";
-            webRequest.Timeout = 10000; // 10 seconds
-            webRequest.KeepAlive = true;
+            var webRequest = (HttpWebRequest)WebRequest.CreateDefault(configuration.ServiceUri);
+
+            foreach (var headerKey in configuration.Headers.Keys)
+            {
+                var headerValue = configuration.Headers[headerKey];
+                webRequest.Headers.Add(headerKey, headerValue);
+            }
+
+            webRequest.ContentType = configuration.ContentType;
+            webRequest.Accept = configuration.Accept;
+            webRequest.Method = configuration.MethodAsString;
+            webRequest.Timeout = configuration.TimeoutMilliseconds;
+            webRequest.KeepAlive = configuration.KeepAlive;
 
             // allow as many connections as the number of iterations
             // http://social.msdn.microsoft.com/Forums/en/ncl/thread/94ae61ec-08df-430b-a5d2-bb287a3acef0
@@ -77,17 +115,28 @@ namespace Mike.AsyncWcf.Client
 
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
-
-            // both GetRequestStream _and_ GetResponse must be aysnc, or both will be
-            // called syncronously.
-            webRequest.BeginGetRequestStream(asyncResult =>
+            Interlocked.Increment(ref inProgress);
+            lock(maxConcurrentLock)
             {
-                using (var stream = webRequest.EndGetRequestStream(asyncResult))
-                using (var writer = new StreamWriter(stream))
+                if (inProgress > maxConcurrent)
                 {
-                    writer.Write(string.Format(soapEnvelope, customerId));
+                    maxConcurrent = inProgress;
                 }
-            }, null);
+            }
+
+            if (configuration.Method == HttpMethod.POST || configuration.Method == HttpMethod.PUT)
+            {
+                // both GetRequestStream _and_ GetResponse must be aysnc, or both will be
+                // called syncronously.
+                webRequest.BeginGetRequestStream(asyncResult =>
+                {
+                    using (var stream = webRequest.EndGetRequestStream(asyncResult))
+                    using (var writer = new StreamWriter(stream))
+                    {
+                        writer.Write(configuration.PostData);
+                    }
+                }, null);
+            }
 
             webRequest.BeginGetResponse(asyncResult =>
             {
@@ -106,10 +155,7 @@ namespace Mike.AsyncWcf.Client
                 }
                 catch (WebException webException)
                 {
-                    lock (faultedLock)
-                    {
-                        faulted++;
-                    }
+                    Interlocked.Increment(ref faulted);
                     if (!webException.Message.StartsWith("The underlying connection was closed"))
                     {
                         ConsumeResponse(webException.Response);
@@ -117,15 +163,13 @@ namespace Mike.AsyncWcf.Client
                 }
                 finally
                 {
-                    lock (completedLock)
-                    {
-                        completed++;
-                    }
+                    Interlocked.Increment(ref completed);
+                    Interlocked.Decrement(ref inProgress);
                 }
             }, null);
         }
 
-        public static void ConsumeResponse(WebResponse response)
+        public void ConsumeResponse(WebResponse response)
         {
             var httpResponse = response as HttpWebResponse;
             if (httpResponse == null)
@@ -133,40 +177,30 @@ namespace Mike.AsyncWcf.Client
                 return;
             }
 
-            if (httpResponse.StatusCode != HttpStatusCode.OK)
+            if (configuration.PrintResponse)
             {
                 WriteResponse(httpResponse);
             }
         }
 
-        public static void WriteResponse(HttpWebResponse response)
+        public void WriteResponse(HttpWebResponse response)
         {
             if (response == null)
             {
                 throw new ArgumentNullException("response");
             }
-            Console.WriteLine();
-            Console.WriteLine("{0}", response.ResponseUri);
-            Console.WriteLine("Status: {0}, {1}", (int)response.StatusCode, response.StatusDescription);
+            outputWriter.WriteLine();
+            outputWriter.WriteLine("{0}", response.ResponseUri);
+            outputWriter.WriteLine("Status: {0}, {1}", (int)response.StatusCode, response.StatusDescription);
 
             foreach (var key in response.Headers.AllKeys)
             {
-                Console.WriteLine("{0}: {1}", key, response.Headers[key]);
+                outputWriter.WriteLine("{0}: {1}", key, response.Headers[key]);
             }
             using (var reader = new StreamReader(response.GetResponseStream()))
             {
-                Console.WriteLine(reader.ReadToEnd());
+                outputWriter.WriteLine(reader.ReadToEnd());
             }
         }
-
-        const string soapEnvelope =
-@"<s:Envelope xmlns:s=""http://schemas.xmlsoap.org/soap/envelope/"">
-<s:Body>
-    <GetCustomerDetails xmlns=""http://tempuri.org/"">
-        <customerId>{0}</customerId>
-    </GetCustomerDetails>
-</s:Body>
-</s:Envelope>";
-
     }
 }
